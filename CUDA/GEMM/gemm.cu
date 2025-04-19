@@ -34,6 +34,7 @@
 
 #define RUN_ON_CPU
 
+#define OTHER_DATA_TYPE double
 
 void gemm(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), 
 	 DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj), DATA_TYPE POLYBENCH_2D(C,NI,NJ,ni,nj))
@@ -136,6 +137,31 @@ __global__ void gemm_kernel(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE b
 	}
 }
 
+__global__ void gemm_kernel_32_64(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c, OTHER_DATA_TYPE * a64, OTHER_DATA_TYPE *b64)
+{
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+
+	if ((i < _PB_NI) && (j < _PB_NJ))
+	{	
+        c[i * NJ + j] *= beta;
+        int k;
+        if (blockIdx.x%2){
+            for(k=0; k < _PB_NK; k++)
+            {
+                c[i * NJ + j] += alpha * a[i * NK + k] * b[k * NJ +j];
+            }
+        } else {
+            OTHER_DATA_TYPE alpha64 = (OTHER_DATA_TYPE)alpha;
+            OTHER_DATA_TYPE temp = 0;
+            for(k=0; k < _PB_NK; k++)
+            {
+                temp += alpha64 * a64[i * NK + k] * b64[k * NJ +j];
+            }
+            c[i * NJ + j] += temp;
+        }
+	}
+}
 
 void gemmCuda(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), 
 	DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj), DATA_TYPE POLYBENCH_2D(C,NI,NJ,ni,nj), DATA_TYPE POLYBENCH_2D(C_outputFromGpu,NI,NJ,ni,nj))
@@ -159,6 +185,63 @@ void gemmCuda(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE
   	polybench_start_instruments;
 
 	gemm_kernel<<< grid, block >>>(ni, nj, nk, alpha, beta, A_gpu, B_gpu, C_gpu);
+	cudaThreadSynchronize();
+
+	/* Stop and print timer. */
+	printf("GPU Time in seconds:\n");
+  	polybench_stop_instruments;
+ 	polybench_print_instruments;
+
+	cudaMemcpy(C_outputFromGpu, C_gpu, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyDeviceToHost);    
+	
+	cudaFree(A_gpu);
+	cudaFree(B_gpu);
+	cudaFree(C_gpu);
+}
+
+
+void gemmCuda_32_64(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), 
+	DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj), DATA_TYPE POLYBENCH_2D(C,NI,NJ,ni,nj), DATA_TYPE POLYBENCH_2D(C_outputFromGpu,NI,NJ,ni,nj))
+{
+	DATA_TYPE *A_gpu;
+	DATA_TYPE *B_gpu;
+	DATA_TYPE *C_gpu;
+
+    OTHER_DATA_TYPE* A64_gpu;
+    OTHER_DATA_TYPE* B64_gpu;
+
+	OTHER_DATA_TYPE *A64= (OTHER_DATA_TYPE* )malloc(sizeof(OTHER_DATA_TYPE) * NI * NK);
+	OTHER_DATA_TYPE *B64= (OTHER_DATA_TYPE* )malloc(sizeof(OTHER_DATA_TYPE) * NK * NJ);
+
+    for (int i = 0; i < NI*NK; i++){
+        A64[i] = (OTHER_DATA_TYPE)((float*)A)[i];
+    }
+    for (int i = 0; i < NK*NJ; i++){
+        B64[i] = (OTHER_DATA_TYPE)((float*)B)[i];
+    }
+
+	cudaMalloc((void **)&A_gpu, sizeof(DATA_TYPE) * NI * NK);
+	cudaMalloc((void **)&B_gpu, sizeof(DATA_TYPE) * NK * NJ);
+	cudaMalloc((void **)&C_gpu, sizeof(DATA_TYPE) * NI * NJ);
+
+	cudaMalloc((void **)&A64_gpu, sizeof(OTHER_DATA_TYPE) * NI * NK);
+	cudaMalloc((void **)&B64_gpu, sizeof(OTHER_DATA_TYPE) * NK * NJ);
+	
+	cudaMemcpy(A_gpu, A, sizeof(DATA_TYPE) * NI * NK, cudaMemcpyHostToDevice);
+	cudaMemcpy(B_gpu, B, sizeof(DATA_TYPE) * NK * NJ, cudaMemcpyHostToDevice);
+	cudaMemcpy(C_gpu, C, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyHostToDevice);
+
+	cudaMemcpy(A64_gpu, A64, sizeof(OTHER_DATA_TYPE) * NI * NK, cudaMemcpyHostToDevice);
+	cudaMemcpy(B64_gpu, B64, sizeof(OTHER_DATA_TYPE) * NK * NJ, cudaMemcpyHostToDevice);
+	
+	dim3 block(DIM_THREAD_BLOCK_X, DIM_THREAD_BLOCK_Y);
+	dim3 grid((size_t)(ceil( ((float)NI)/ ((float)block.x) )),(size_t)(ceil( ((float)NJ)/ ((float)block.y) )));
+
+	/* Start timer. */
+  	polybench_start_instruments;
+
+	// gemm_kernel<<< grid, block >>>(ni, nj, nk, alpha, beta, A_gpu, B_gpu, C_gpu);
+	gemm_kernel_32_64<<< grid, block >>>(ni, nj, nk, alpha, beta, A_gpu, B_gpu, C_gpu, A64_gpu, B64_gpu);
 	cudaThreadSynchronize();
 
 	/* Stop and print timer. */
@@ -211,6 +294,7 @@ int main(int argc, char *argv[])
 	GPU_argv_init();
 	
 	gemmCuda(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	gemmCuda_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 
 
 	#ifdef RUN_ON_CPU
