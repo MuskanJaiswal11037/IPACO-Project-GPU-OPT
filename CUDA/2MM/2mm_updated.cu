@@ -116,7 +116,7 @@ __global__ void mm2_kernel1(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 	if ((i < _PB_NI) && (j < _PB_NJ))
 	{   
 		tmp[i * NJ + j] = 0;
-		if(warp_id >= 0){
+		if(warp_id %3 ==  0){
 			int k;
 			for (k = 0; k < _PB_NK; k++)
 			{	
@@ -167,7 +167,7 @@ __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
         // printf("%d %d\n",i,j);
 	if ((i < _PB_NI) && (j < _PB_NL))
 	{ 
-		if(warp_id >= 0){
+		if(warp_id %3== 0){
 			D[i * NL + j] *= beta;
 			int k;
 			for(k = 0; k < _PB_NJ; k++)
