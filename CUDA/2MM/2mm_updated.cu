@@ -109,7 +109,7 @@ __global__ void mm2_kernel1(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 	if((i < _PB_NI) && (j < _PB_NJ))
 	{   
 		tmp[i * NJ + j] = 0;
-		if(warp_id >= 0){
+		if(warp_id %2 == 0){
 			int k;
 			for (k = 0; k < _PB_NK; k++)
 			{	
@@ -137,7 +137,7 @@ __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 
 	if ((i < _PB_NI) && (j < _PB_NL))
 	{ 
-		if(warp_id >= 0){
+		if(warp_id %2 == 0){
 			D[i * NL + j] *= beta;
 			int k;
 			for(k = 0; k < _PB_NJ; k++)
@@ -287,7 +287,6 @@ int main(int argc, char** argv)
 		POLYBENCH_ARRAY(D), POLYBENCH_ARRAY(D_outputFromGpu));
 
 	#ifdef RUN_ON_CPU
-
 		/* Start timer. */
 	  	polybench_start_instruments;
 
@@ -304,7 +303,6 @@ int main(int argc, char** argv)
 		print_array(ni, nl, POLYBENCH_ARRAY(D_outputFromGpu));
 
 	#endif //RUN_ON_CPU
-
 	POLYBENCH_FREE_ARRAY(tmp);
 	POLYBENCH_FREE_ARRAY(A);
 	POLYBENCH_FREE_ARRAY(B);
