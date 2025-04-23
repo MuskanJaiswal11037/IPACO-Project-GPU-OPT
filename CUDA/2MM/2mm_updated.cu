@@ -89,6 +89,7 @@ void compareResults(int ni, int nl, DATA_TYPE POLYBENCH_2D(D, NI, NL, ni, nl), D
 	printf("Non-Matching CPU-GPU Outputs Beyond Error Threshold of %4.2f Percent: %d\n", PERCENT_DIFF_ERROR_THRESHOLD, fail);
 }
 
+
 void GPU_argv_init()
 {
 	cudaDeviceProp deviceProp;
@@ -108,7 +109,7 @@ __global__ void mm2_kernel1(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 	if((i < _PB_NI) && (j < _PB_NJ))
 	{   
 		tmp[i * NJ + j] = 0;
-		if(warp_id %2 == 0){
+		if(warp_id >= 0){
 			int k;
 			for (k = 0; k < _PB_NK; k++)
 			{	
@@ -136,7 +137,7 @@ __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 
 	if ((i < _PB_NI) && (j < _PB_NL))
 	{ 
-		if(warp_id%2 == 0){
+		if(warp_id >= 0){
 			D[i * NL + j] *= beta;
 			int k;
 			for(k = 0; k < _PB_NJ; k++)
@@ -147,11 +148,9 @@ __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 		else if(warp_id%2 == 1){
 			double res = (double)D[i * NL + j];
 			double beta1 = beta;
-			double* C1 = (double*)C;
-			double* tmp1 = (double*)tmp;
 			res = res*beta1;
 			for(int k = 0; k < _PB_NJ; k++){
-				res += tmp1[i * NJ + k] * C1[k * NL + j];
+				res += (double)tmp[i * NJ + k] * (double)C[k * NL + j];
 			}
 			D[i * NL + j] = static_cast<float>(res);
 		}	
