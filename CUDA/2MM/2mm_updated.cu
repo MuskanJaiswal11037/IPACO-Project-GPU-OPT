@@ -1,13 +1,3 @@
-/**
- * 2mm.cu: This file is part of the PolyBench/GPU 1.0 test suite.
- *
- *
- * Contact: Scott Grauer-Gray <sgrauerg@gmail.com>
- * Will Killian <killian@udel.edu>
- * Louis-Noel Pouchet <pouchet@cse.ohio-state.edu>
- * Web address: http://www.cse.ohio-state.edu/~pouchet/software/polybench/GPU
- */
-
 #include<iostream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +13,7 @@
 #include "2mm.cuh"
 #include "../../common/polybench.h"
 #include "../../common/polybenchUtilFuncts.h"
-
+using namespace std;
 //define the error threshold for the results "not matching"
 #define PERCENT_DIFF_ERROR_THRESHOLD 0.05
 
@@ -82,10 +72,15 @@ void compareResults(int ni, int nl, DATA_TYPE POLYBENCH_2D(D, NI, NL, ni, nl), D
 	for (i=0; i < ni; i++)
 	{
 		for (j=0; j < nl; j++)
-		{
+		{   
+			// printf("%d -->\n", percentDiff(D[i][j], D_outputFromGpu[i][j]));
 			if (percentDiff(D[i][j], D_outputFromGpu[i][j]) > PERCENT_DIFF_ERROR_THRESHOLD)
 			{
 				fail++;
+				// printf("%d ---> %d\n", D[i][j],D_outputFromGpu[i][j]);
+			}
+			else{
+				// printf("%d +++++ %d\n", D[i][j],D_outputFromGpu[i][j]);
 			}
 		}
 	}
@@ -93,7 +88,6 @@ void compareResults(int ni, int nl, DATA_TYPE POLYBENCH_2D(D, NI, NL, ni, nl), D
 	// print results
 	printf("Non-Matching CPU-GPU Outputs Beyond Error Threshold of %4.2f Percent: %d\n", PERCENT_DIFF_ERROR_THRESHOLD, fail);
 }
-
 
 void GPU_argv_init()
 {
@@ -103,59 +97,34 @@ void GPU_argv_init()
 	cudaSetDevice( GPU_DEVICE );
 }
 
-
 __global__ void mm2_kernel1(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE *tmp, DATA_TYPE *A, DATA_TYPE *B)
 {
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
-
 	int tid = threadIdx.y * blockDim.x + threadIdx.x;
 	int warp_id = tid/32;
 	// printf("%d", warp_id);
 
-	if ((i < _PB_NI) && (j < _PB_NJ))
+	if((i < _PB_NI) && (j < _PB_NJ))
 	{   
 		tmp[i * NJ + j] = 0;
-		if(warp_id %3 ==  0){
+		if(warp_id %2 == 0){
 			int k;
 			for (k = 0; k < _PB_NK; k++)
 			{	
 				tmp[i * NJ + j] += alpha * A[i * NK + k] * B[k * NJ + j];
 			}
 		}
-		else if(warp_id %3 == 1){
-			// printf("lll");
-			double* A1 = (double*)A;
-			double* B1 = (double*)B;
+		else{
 			double alpha_d = (double)alpha;
-
 			double acc = 0.0;
 			for(int k =0; k <nk; ++k){
-				acc += (alpha_d) * A1[i * nk + k] * B1[k * nj + j];
+				acc += (alpha_d) * (double )A[i * NK + k] * (double)B[k * NJ + j];
 			}
 			tmp[i*NJ+j] = static_cast<float>(acc);
 		}
-		else{
-		    for (int k = 0; k < nk; ++k) {
-				A[i * nk + k] *= 1000;
-			}
-			for (int k = 0; k < nk; ++k) {
-				B[k * nj + j] *= 1000;
-			 }
-			 alpha = alpha*1000;
-			int* A1 = (int*)A; 
-            int* B1 = (int*)B;
-            int alpha_i = (int)alpha;
-            int acc = 0;
-            for (int k = 0; k < nk; ++k) {
-                acc += (alpha_i) * A1[i * nk + k] * B1[k * nj + j];
-            }
-			tmp[i*NJ+j]= (float)(acc/10e9);
-            // tmp[i*NJ+j]= static_cast<float>(acc);  
-		}
 	}
 }
-
 
 __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE *tmp, DATA_TYPE *C, DATA_TYPE *D)
 {
@@ -164,10 +133,10 @@ __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 
 	int tid = threadIdx.y * blockDim.x + threadIdx.x;
 	int warp_id = tid/32;
-        // printf("%d %d\n",i,j);
+
 	if ((i < _PB_NI) && (j < _PB_NL))
 	{ 
-		if(warp_id %3== 0){
+		if(warp_id%2 == 0){
 			D[i * NL + j] *= beta;
 			int k;
 			for(k = 0; k < _PB_NJ; k++)
@@ -175,7 +144,7 @@ __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 				D[i * NL + j] += tmp[i * NJ + k] * C[k * NL + j];
 			}
 		}
-		else if(warp_id%3 == 1){
+		else if(warp_id%2 == 1){
 			double res = (double)D[i * NL + j];
 			double beta1 = beta;
 			double* C1 = (double*)C;
@@ -185,27 +154,7 @@ __global__ void mm2_kernel2(int ni, int nj, int nk, int nl, DATA_TYPE alpha, DAT
 				res += tmp1[i * NJ + k] * C1[k * NL + j];
 			}
 			D[i * NL + j] = static_cast<float>(res);
-		}
-		else{
-			int res = (int)(D[i * NL + j]*1000);
-			int beta1 = (int)(beta*1000);
-			for(int k = 0; k < _PB_NJ; k++){
-				tmp[i * NJ + k] *= 1000;
-			}
-			for(int k = 0; k < _PB_NJ; k++){
-				C[k * NL + j] *= 1000;
-			}
-
-			int* C1 = (int*)C;
-			int* tmp1 = (int*)tmp;
-			res = res*beta1;
-			for(int k = 0; k < _PB_NJ; k++){
-				res += tmp1[i * NJ + k] * C1[k * NL + j];
-			}
-			D[i * NL + j] = (float)(res/1e6);
-			// D[i * NL + j] = static_cast<float>(res);
-		}
-		
+		}	
 	}
 }
 
@@ -241,6 +190,7 @@ void mm2_cpu(int ni, int nj, int nk, int nl,
 			for (k = 0; k < _PB_NJ; ++k)
 			{
 				D[i][j] += tmp[i][k] * C[k][j];
+				// cout<<D[i][j]<<"  "<<endl;
 			}
 		}
 	}
