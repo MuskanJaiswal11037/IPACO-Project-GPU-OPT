@@ -242,69 +242,73 @@ using namespace nvcuda;                    // wmma::
 /* ------------------------------------------------------------------- */
 
 #define GPU_DEVICE 0
-#define ERR_THRESH 0.05f       /* 0.05 % max relative-error allowed   */
+#define ERR_THRESH 0.05f       
 
 /* =================================================================== */
-/* ----------  ORIGINAL helper functions (unchanged)  ---------------- */
-static void init_array(int ni,int nj,int nk,int nl,
-                    DATA_TYPE *alpha, DATA_TYPE *beta,
-                    DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk),
-                    DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj),
-                    DATA_TYPE POLYBENCH_2D(C,NL,NJ,nl,nj),
-                    DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl))
-{
+/* ----------  ORIGINAL helper functions  ---------------- */
+static void init_array(int ni,int nj,int nk,int nl, DATA_TYPE *alpha, DATA_TYPE *beta,
+                    DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj),
+                    DATA_TYPE POLYBENCH_2D(C,NL,NJ,nl,nj), DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl)){
+
     *alpha = 32412.0f;
     *beta  = 2123.0f;
+
     for(int i=0;i<ni;i++)
-    for(int k=0;k<nk;k++) A[i][k] = (float)(i*k)/NI;
+        for(int k=0;k<nk;k++) 
+            A[i][k] = (DATA_TYPE)(i*k)/NI;
+
     for(int k=0;k<nk;k++)
-    for(int j=0;j<nj;j++) B[k][j] = (float)(k*(j+1))/NJ;
+        for(int j=0;j<nj;j++) 
+            B[k][j] = (DATA_TYPE)(k*(j+1))/NJ;
+
     for(int l=0;l<nl;l++)
-    for(int j=0;j<nj;j++) C[l][j] = (float)(l*(j+3))/NL;
+        for(int j=0;j<nj;j++) 
+            C[l][j] = (DATA_TYPE)(l*(j+3))/NL;
+
     for(int i=0;i<ni;i++)
-    for(int l=0;l<nl;l++) D[i][l] = (float)(i*(l+2))/NK;
+        for(int l=0;l<nl;l++) 
+            D[i][l] = (DATA_TYPE)(i*(l+2))/NK;
 }
 
-static void compareResults(int ni,int nl,
-                        DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl),
-                        DATA_TYPE POLYBENCH_2D(Dg,NI,NL,ni,nl))
-{
+static void compareResults(int ni,int nl, DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl), DATA_TYPE POLYBENCH_2D(Dg,NI,NL,ni,nl)){
+
     int fail=0;
     for(int i=0;i<ni;i++)
-    for(int l=0;l<nl;l++)
-        if(percentDiff(D[i][l],Dg[i][l])>ERR_THRESH) ++fail;
+        for(int l=0;l<nl;l++)
+            if(percentDiff(D[i][l],Dg[i][l])>ERR_THRESH) 
+                ++fail;
+
     printf("Non-Matching CPU-GPU Outputs Beyond Error Threshold "
         "(%4.2f%%): %d\n", ERR_THRESH, fail);
 }
 
 static void GPU_argv_init()
 {
-    cudaDeviceProp p; cudaGetDeviceProperties(&p,GPU_DEVICE);
-    printf("setting device %d with name %s\n",GPU_DEVICE,p.name);
+    cudaDeviceProp deviceProp; 
+    cudaGetDeviceProperties(&deviceProp,GPU_DEVICE);
+    printf("setting device %d with name %s\n",GPU_DEVICE,deviceProp.name);
     cudaSetDevice(GPU_DEVICE);
 }
 
-/* -------------------  optional CPU reference  --------------------- */
-static void mm2_cpu(int ni,int nj,int nk,int nl,
-                    DATA_TYPE alpha, DATA_TYPE beta,
-                    DATA_TYPE POLYBENCH_2D(tmp,NI,NJ,ni,nj),
-                    DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk),
-                    DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj),
-                    DATA_TYPE POLYBENCH_2D(C,NL,NJ,nl,nj),
-                    DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl))
-{
+/* -------------------  CPU reference  --------------------- */
+static void mm2_cpu(int ni,int nj,int nk,int nl, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE POLYBENCH_2D(tmp,NI,NJ,ni,nj),
+                    DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj),
+                    DATA_TYPE POLYBENCH_2D(C,NL,NJ,nl,nj), DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl)){
+
     for(int i=0;i<ni;i++)
-    for(int j=0;j<nj;j++){
-        DATA_TYPE acc=0.f;
-        for(int k=0;k<nk;k++) acc+=alpha*A[i][k]*B[k][j];
-        tmp[i][j]=acc;
-    }
+        for(int j=0;j<nj;j++){
+            DATA_TYPE acc=0.f;
+            for(int k=0;k<nk;k++) 
+                acc+=alpha*A[i][k]*B[k][j];
+            tmp[i][j]=acc;
+        }
     for(int i=0;i<ni;i++)
-    for(int l=0;l<nl;l++){
-        DATA_TYPE acc=beta*D[i][l];
-        for(int j=0;j<nj;j++) acc+=tmp[i][j]*C[j][l];
-        D[i][l]=acc;
-    }
+        for(int l=0;l<nl;l++){
+            DATA_TYPE acc=beta*D[i][l];
+            for(int j=0;j<nj;j++) 
+                acc+=tmp[i][j]*C[j][l];
+            D[i][l]=acc;
+        }
 }
 
 /* =================================================================== */
@@ -361,18 +365,16 @@ __global__ void wmma_kernel2(int M,int N,int K,float beta,
 
 /* =================================================================== */
 /* -----------------------  GPU driver  ------------------------------ */
-void mm2Cuda(int ni,int nj,int nk,int nl,
-            DATA_TYPE alpha, DATA_TYPE beta,
-            DATA_TYPE POLYBENCH_2D(tmp,NI,NJ,ni,nj),
-            DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk),
-            DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj),
-            DATA_TYPE POLYBENCH_2D(C,NL,NJ,nl,nj),
-            DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl),
-            DATA_TYPE POLYBENCH_2D(Dg,NI,NL,ni,nl))
-{
-    size_t sA=sizeof(float)*NI*NK, sB=sizeof(float)*NK*NJ,
-        sC=sizeof(float)*NL*NJ, sD=sizeof(float)*NI*NL,
-        sT=sizeof(float)*NI*NJ;
+void mm2Cuda(int ni,int nj,int nk,int nl, DATA_TYPE alpha, DATA_TYPE beta,
+            DATA_TYPE POLYBENCH_2D(tmp,NI,NJ,ni,nj), DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk),
+            DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj), DATA_TYPE POLYBENCH_2D(C,NL,NJ,nl,nj),
+            DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl), DATA_TYPE POLYBENCH_2D(Dg,NI,NL,ni,nl)){
+
+    size_t sA = sizeof(float)*NI*NK;
+    size_t sB = sizeof(float)*NK*NJ;
+    size_t sC = sizeof(float)*NL*NJ; 
+    size_t sD = sizeof(float)*NI*NL;
+    size_t sT = sizeof(float)*NI*NJ;
 
     /* FP32 device buffers */
     float *dA,*dB,*dC,*dD,*dTmp;
@@ -433,18 +435,18 @@ int main()
             POLYBENCH_ARRAY(C),POLYBENCH_ARRAY(D));
     GPU_argv_init();
 
-    mm2Cuda(ni,nj,nk,nl,alpha,beta,
-            POLYBENCH_ARRAY(tmp),POLYBENCH_ARRAY(A),POLYBENCH_ARRAY(B),
+    mm2Cuda(ni,nj,nk,nl,alpha,beta, POLYBENCH_ARRAY(tmp),POLYBENCH_ARRAY(A),POLYBENCH_ARRAY(B),
             POLYBENCH_ARRAY(C),  POLYBENCH_ARRAY(D), POLYBENCH_ARRAY(Dgpu));
 
 
     polybench_start_instruments;
-    mm2_cpu(ni,nj,nk,nl,alpha,beta,
-            POLYBENCH_ARRAY(tmp),POLYBENCH_ARRAY(A),POLYBENCH_ARRAY(B),
+    mm2_cpu(ni,nj,nk,nl,alpha,beta, POLYBENCH_ARRAY(tmp),POLYBENCH_ARRAY(A),POLYBENCH_ARRAY(B),
             POLYBENCH_ARRAY(C),  POLYBENCH_ARRAY(D));
+
     printf("CPU Time in seconds:\n");
     polybench_stop_instruments;
     polybench_print_instruments;
+    
     compareResults(ni,nl,POLYBENCH_ARRAY(D),POLYBENCH_ARRAY(Dgpu));
 
     POLYBENCH_FREE_ARRAY(tmp); POLYBENCH_FREE_ARRAY(A); POLYBENCH_FREE_ARRAY(B);
