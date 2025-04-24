@@ -77,10 +77,6 @@ void compareResults(int ni, int nl, DATA_TYPE POLYBENCH_2D(D, NI, NL, ni, nl), D
 			if (percentDiff(D[i][j], D_outputFromGpu[i][j]) > PERCENT_DIFF_ERROR_THRESHOLD)
 			{
 				fail++;
-				// printf("%d ---> %d\n", D[i][j],D_outputFromGpu[i][j]);
-			}
-			else{
-				// printf("%d +++++ %d\n", D[i][j],D_outputFromGpu[i][j]);
 			}
 		}
 	}
@@ -167,7 +163,6 @@ void mm2_cpu(int ni, int nj, int nk, int nl,
 		DATA_TYPE POLYBENCH_2D(D,NI,NL,ni,nl))
 {
 	int i, j, k;
-	
 	/* D := alpha*A*B*C + beta*D */
 	for (i = 0; i < _PB_NI; i++)
 	{

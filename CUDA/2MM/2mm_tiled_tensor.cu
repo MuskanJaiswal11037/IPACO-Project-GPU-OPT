@@ -122,8 +122,8 @@ inline void gpuAssert(cublasStatus_t stat, const char *file, int line)
      __shared__ DATA_TYPE As[TILE_DIM][TILE_DIM];
      __shared__ DATA_TYPE Bs[TILE_DIM][TILE_DIM];
  
-     int row = blockIdx.y * TILE_DIM + threadIdx.y;   // i
-     int col = blockIdx.x * TILE_DIM + threadIdx.x;   // j
+    int row = blockIdx.y * TILE_DIM + threadIdx.y;   // i
+    int col = blockIdx.x * TILE_DIM + threadIdx.x;   // j
  
      DATA_TYPE acc = 0.0;
  
@@ -230,8 +230,7 @@ inline void gpuAssert(cublasStatus_t stat, const char *file, int line)
          }
      }
  }
- 
- 
+
  /* DCE code. Must scan the entire live-out data.
     Can be used also to check the correctness of the output. */
  static
