@@ -154,6 +154,51 @@ __global__ void gemm_kernel_better(int ni, int nj, int nk, DATA_TYPE alpha, DATA
 	}
 }
 
+__global__ void gemm_kernel_tiled(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
+{
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+    const int TILE_SIZE = DIM_THREAD_BLOCK_X;
+
+    __shared__ DATA_TYPE Asub[TILE_SIZE][TILE_SIZE];
+    __shared__ DATA_TYPE Bsub[TILE_SIZE][TILE_SIZE];
+    DATA_TYPE val = 0;
+
+    for (int t = 0; t < (nk + TILE_SIZE - 1) / TILE_SIZE; t++)
+    {
+        // Load a tile of A and B into shared memory
+        if (i < ni && t * TILE_SIZE + threadIdx.x < nk)
+            Asub[threadIdx.y][threadIdx.x] = a[i * nk + (t * TILE_SIZE + threadIdx.x)];
+        else
+            Asub[threadIdx.y][threadIdx.x] = 0.0;
+
+        if (j < nj && t * TILE_SIZE + threadIdx.y < nk)
+            Bsub[threadIdx.y][threadIdx.x] = b[(t * TILE_SIZE + threadIdx.y) * nj + j];
+        else
+            Bsub[threadIdx.y][threadIdx.x] = 0.0;
+
+        __syncthreads();
+
+        // Compute partial product
+        for (int k = 0; k < TILE_SIZE; k++)
+        {
+            val += Asub[threadIdx.y][k] * Bsub[k][threadIdx.x];
+        }
+
+        __syncthreads();
+    }
+
+	if ((i < _PB_NI) && (j < _PB_NJ))
+	{	
+		// int k;
+		// for(k=0; k < _PB_NK; k++)
+		// {
+		// 	val += a[i + k*NJ] * b[k * NJ +j];
+		// }
+        c[i*NJ + j] = c[i*NJ + j]*beta + val*alpha;
+	}
+}
+
 __global__ void gemm_kernel_32_64(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c, OTHER_DATA_TYPE * a64, OTHER_DATA_TYPE *b64)
 {
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -226,13 +271,6 @@ void gemmCudaBetter(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DAT
 	cudaMalloc((void **)&A_gpu, sizeof(DATA_TYPE) * NI * NK);
 	cudaMalloc((void **)&B_gpu, sizeof(DATA_TYPE) * NK * NJ);
 	cudaMalloc((void **)&C_gpu, sizeof(DATA_TYPE) * NI * NJ);
-
-    DATA_TYPE* A_t= (DATA_TYPE*)malloc(sizeof(DATA_TYPE) * NI * NK);
-    for (int i = 0; i < NI; i++) {
-        for (int j = 0; j < NK; j++) {
-            A_t[j * NI + i] = A[i][j];
-        }
-    }
 	
 	cudaMemcpy(A_gpu, A, sizeof(DATA_TYPE) * NI * NK, cudaMemcpyHostToDevice);
 	cudaMemcpy(B_gpu, B, sizeof(DATA_TYPE) * NK * NJ, cudaMemcpyHostToDevice);
@@ -245,6 +283,42 @@ void gemmCudaBetter(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DAT
   	polybench_start_instruments;
 
 	gemm_kernel_better<<< grid, block >>>(ni, nj, nk, alpha, beta, A_gpu, B_gpu, C_gpu);
+	cudaThreadSynchronize();
+
+	/* Stop and print timer. */
+	printf("GPU Time in seconds:\n");
+  	polybench_stop_instruments;
+ 	polybench_print_instruments;
+
+	cudaMemcpy(C_outputFromGpu, C_gpu, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyDeviceToHost);    
+	
+	cudaFree(A_gpu);
+	cudaFree(B_gpu);
+	cudaFree(C_gpu);
+}
+
+void gemmCudaTiled(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), 
+	DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj), DATA_TYPE POLYBENCH_2D(C,NI,NJ,ni,nj), DATA_TYPE POLYBENCH_2D(C_outputFromGpu,NI,NJ,ni,nj))
+{
+	DATA_TYPE *A_gpu;
+	DATA_TYPE *B_gpu;
+	DATA_TYPE *C_gpu;
+
+	cudaMalloc((void **)&A_gpu, sizeof(DATA_TYPE) * NI * NK);
+	cudaMalloc((void **)&B_gpu, sizeof(DATA_TYPE) * NK * NJ);
+	cudaMalloc((void **)&C_gpu, sizeof(DATA_TYPE) * NI * NJ);
+	
+	cudaMemcpy(A_gpu, A, sizeof(DATA_TYPE) * NI * NK, cudaMemcpyHostToDevice);
+	cudaMemcpy(B_gpu, B, sizeof(DATA_TYPE) * NK * NJ, cudaMemcpyHostToDevice);
+	cudaMemcpy(C_gpu, C, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyHostToDevice);
+	
+	dim3 block(DIM_THREAD_BLOCK_X, DIM_THREAD_BLOCK_Y);
+	dim3 grid((size_t)(ceil( ((float)NI)/ ((float)block.x) )),(size_t)(ceil( ((float)NJ)/ ((float)block.y) )));
+
+	/* Start timer. */
+  	polybench_start_instruments;
+
+	gemm_kernel_tiled<<< grid, block >>>(ni, nj, nk, alpha, beta, A_gpu, B_gpu, C_gpu);
 	cudaThreadSynchronize();
 
 	/* Stop and print timer. */
@@ -355,6 +429,7 @@ int main(int argc, char *argv[])
 	
 	gemmCuda(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 	gemmCudaBetter(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	gemmCudaTiled(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 
 
 	#ifdef RUN_ON_CPU
@@ -362,7 +437,7 @@ int main(int argc, char *argv[])
 		/* Start timer. */
 	  	polybench_start_instruments;
 
-		gemm(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C));
+		// gemm(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C));
 		
 		/* Stop and print timer. */
 		printf("CPU Time in seconds:\n");
