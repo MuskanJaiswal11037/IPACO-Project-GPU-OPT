@@ -154,7 +154,7 @@ __global__ void gemm_kernel_better(int ni, int nj, int nk, DATA_TYPE alpha, DATA
 	}
 }
 
-__global__ void gemm_kernel_tiled(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
+__global__ void gemm_kernel_tiled(int ni, int nj, int nk, const DATA_TYPE alpha, const DATA_TYPE beta, const DATA_TYPE *__restrict__ a, const DATA_TYPE *__restrict__ b, DATA_TYPE *__restrict__ c)
 {
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
@@ -199,7 +199,7 @@ __global__ void gemm_kernel_tiled(int ni, int nj, int nk, DATA_TYPE alpha, DATA_
 	}
 }
 
-__global__ void gemm_kernel_tiled_32_64(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
+__global__ void gemm_kernel_tiled_32_64(int ni, int nj, int nk, const DATA_TYPE alpha, const DATA_TYPE beta, const DATA_TYPE *__restrict__ a, const DATA_TYPE *__restrict__ b, DATA_TYPE *__restrict__ c)
 {
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
@@ -209,7 +209,7 @@ __global__ void gemm_kernel_tiled_32_64(int ni, int nj, int nk, DATA_TYPE alpha,
     __shared__ DATA_TYPE Bsub[TILE_SIZE][TILE_SIZE];
     __shared__ OTHER_DATA_TYPE Asub64[TILE_SIZE][TILE_SIZE];
     __shared__ OTHER_DATA_TYPE Bsub64[TILE_SIZE][TILE_SIZE];
-    if (threadIdx.y >= 16){
+    if (threadIdx.y >= 2){
         DATA_TYPE val = 0;
 
         for (int t = 0; t < (nk + TILE_SIZE - 1) / TILE_SIZE; t++)
@@ -305,7 +305,7 @@ __global__ void gemm_kernel_32_64(int ni, int nj, int nk, DATA_TYPE alpha, DATA_
 	{	
         c[i * NJ + j] *= beta;
         int k;
-        if (blockIdx.x%2){
+        if (blockIdx.x>=2){
             for(k=0; k < _PB_NK; k++)
             {
                 c[i * NJ + j] += alpha * a[i * NK + k] * b[k * NJ +j];
@@ -560,9 +560,10 @@ int main(int argc, char *argv[])
 	GPU_argv_init();
 	
 	// gemmCuda(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
-	// gemmCudaBetter(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	gemmCudaBetter(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 	gemmCudaTiled(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
-	// gemmCudaTiled_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	gemmCudaTiled_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	// gemmCuda_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 
 
 	#ifdef RUN_ON_CPU
