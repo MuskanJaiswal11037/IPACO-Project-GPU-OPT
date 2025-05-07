@@ -209,90 +209,327 @@ __global__ void gemm_kernel_tiled_32_64(int ni, int nj, int nk, const DATA_TYPE 
     __shared__ DATA_TYPE Bsub[TILE_SIZE][TILE_SIZE];
     __shared__ OTHER_DATA_TYPE Asub64[TILE_SIZE][TILE_SIZE];
     __shared__ OTHER_DATA_TYPE Bsub64[TILE_SIZE][TILE_SIZE];
-    if (threadIdx.y >= 2){
-        DATA_TYPE val = 0;
+    DATA_TYPE val = 0;
 
-        for (int t = 0; t < (nk + TILE_SIZE - 1) / TILE_SIZE; t++)
+    for (int t = 0; t < (nk + TILE_SIZE - 1) / TILE_SIZE; t++)
+    {
+        // Load a tile of A and B into shared memory
+        if (i < ni && t * TILE_SIZE + threadIdx.x < nk){
+            Asub[threadIdx.y][threadIdx.x] = a[i * nk + (t * TILE_SIZE + threadIdx.x)];
+            Asub64[threadIdx.y][threadIdx.x] = (OTHER_DATA_TYPE)a[i * nk + (t * TILE_SIZE + threadIdx.x)];
+        } else {
+            Asub[threadIdx.y][threadIdx.x] = 0.0;
+            Asub64[threadIdx.y][threadIdx.x] = 0.0;
+        }
+
+        if (j < nj && t * TILE_SIZE + threadIdx.y < nk){
+            Bsub[threadIdx.y][threadIdx.x] = b[(t * TILE_SIZE + threadIdx.y) * nj + j];
+            Bsub64[threadIdx.y][threadIdx.x] = (OTHER_DATA_TYPE)b[(t * TILE_SIZE + threadIdx.y) * nj + j];
+        } else {
+            Bsub[threadIdx.y][threadIdx.x] = 0.0;
+            Bsub64[threadIdx.y][threadIdx.x] = 0.0;
+        }
+
+        __syncthreads();
+
+        // Compute partial product
+        for (int k = 0; k < TILE_SIZE; k++)
         {
-            // Load a tile of A and B into shared memory
-            if (i < ni && t * TILE_SIZE + threadIdx.x < nk){
-                Asub[threadIdx.y][threadIdx.x] = a[i * nk + (t * TILE_SIZE + threadIdx.x)];
-                Asub64[threadIdx.y][threadIdx.x] = (OTHER_DATA_TYPE)a[i * nk + (t * TILE_SIZE + threadIdx.x)];
-            } else {
-                Asub[threadIdx.y][threadIdx.x] = 0.0;
-                Asub64[threadIdx.y][threadIdx.x] = 0.0;
-            }
-
-            if (j < nj && t * TILE_SIZE + threadIdx.y < nk){
-                Bsub[threadIdx.y][threadIdx.x] = b[(t * TILE_SIZE + threadIdx.y) * nj + j];
-                Bsub64[threadIdx.y][threadIdx.x] = (OTHER_DATA_TYPE)b[(t * TILE_SIZE + threadIdx.y) * nj + j];
-            } else {
-                Bsub[threadIdx.y][threadIdx.x] = 0.0;
-                Bsub64[threadIdx.y][threadIdx.x] = 0.0;
-            }
-
-            __syncthreads();
-
-            // Compute partial product
-            for (int k = 0; k < TILE_SIZE; k++)
-            {
-                val += Asub[threadIdx.y][k] * Bsub[k][threadIdx.x];
-            }
-
-            __syncthreads();
+            val += Asub[threadIdx.y][k] * Bsub[k][threadIdx.x];
         }
+        // if (threadIdx.y == 0){
+        //     val += Asub64[threadIdx.y][0] * Bsub64[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 1){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub64[threadIdx.y][1] * Bsub64[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // }  else if (threadIdx.y == 2){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub64[threadIdx.y][2] * Bsub64[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 3){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub64[threadIdx.y][3] * Bsub64[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 4){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub64[threadIdx.y][4] * Bsub64[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 5){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub64[threadIdx.y][5] * Bsub64[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 6){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub64[threadIdx.y][6] * Bsub64[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 7){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub64[threadIdx.y][7] * Bsub64[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // }   else if (threadIdx.y == 8){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub64[threadIdx.y][8] * Bsub64[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 9){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub64[threadIdx.y][9] * Bsub64[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 10){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub64[threadIdx.y][10] * Bsub64[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 11){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub64[threadIdx.y][11] * Bsub64[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 12){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub64[threadIdx.y][12] * Bsub64[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 13){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub64[threadIdx.y][13] * Bsub64[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 14){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub64[threadIdx.y][14] * Bsub64[14][threadIdx.x];
+        //     val += Asub[threadIdx.y][15] * Bsub[15][threadIdx.x];
+        // } else if (threadIdx.y == 15){
+        //     val += Asub[threadIdx.y][0] * Bsub[0][threadIdx.x];
+        //     val += Asub[threadIdx.y][1] * Bsub[1][threadIdx.x];
+        //     val += Asub[threadIdx.y][2] * Bsub[2][threadIdx.x];
+        //     val += Asub[threadIdx.y][3] * Bsub[3][threadIdx.x];
+        //     val += Asub[threadIdx.y][4] * Bsub[4][threadIdx.x];
+        //     val += Asub[threadIdx.y][5] * Bsub[5][threadIdx.x];
+        //     val += Asub[threadIdx.y][6] * Bsub[6][threadIdx.x];
+        //     val += Asub[threadIdx.y][7] * Bsub[7][threadIdx.x];
+        //     val += Asub[threadIdx.y][8] * Bsub[8][threadIdx.x];
+        //     val += Asub[threadIdx.y][9] * Bsub[9][threadIdx.x];
+        //     val += Asub[threadIdx.y][10] * Bsub[10][threadIdx.x];
+        //     val += Asub[threadIdx.y][11] * Bsub[11][threadIdx.x];
+        //     val += Asub[threadIdx.y][12] * Bsub[12][threadIdx.x];
+        //     val += Asub[threadIdx.y][13] * Bsub[13][threadIdx.x];
+        //     val += Asub[threadIdx.y][14] * Bsub[14][threadIdx.x];
+        //     val += Asub64[threadIdx.y][15] * Bsub64[15][threadIdx.x];
+        // }
 
-        if ((i < _PB_NI) && (j < _PB_NJ))
-        {	
-            // int k;
-            // for(k=0; k < _PB_NK; k++)
-            // {
-            // 	val += a[i + k*NJ] * b[k * NJ +j];
-            // }
-            c[i*NJ + j] = c[i*NJ + j]*beta + val*alpha;
-        }
+        //     if (threadIdx.y >= 0){
+        // } else {
+        //     for (int k = 0; k < TILE_SIZE; k++)
+        //     {
+        //         val += Asub64[threadIdx.y][k] * Bsub64[k][threadIdx.x];
+        //     }
+        // }
+
+        __syncthreads();
     }
-    else {
-        OTHER_DATA_TYPE val64 = 0;
 
-        for (int t = 0; t < (nk + TILE_SIZE - 1) / TILE_SIZE; t++)
-        {
-            if (i < ni && t * TILE_SIZE + threadIdx.x < nk){
-                Asub[threadIdx.y][threadIdx.x] = a[i * nk + (t * TILE_SIZE + threadIdx.x)];
-                Asub64[threadIdx.y][threadIdx.x] = (OTHER_DATA_TYPE)a[i * nk + (t * TILE_SIZE + threadIdx.x)];
-            } else {
-                Asub[threadIdx.y][threadIdx.x] = 0.0;
-                Asub64[threadIdx.y][threadIdx.x] = 0.0;
-            }
-
-            if (j < nj && t * TILE_SIZE + threadIdx.y < nk){
-                Bsub[threadIdx.y][threadIdx.x] = b[(t * TILE_SIZE + threadIdx.y) * nj + j];
-                Bsub64[threadIdx.y][threadIdx.x] = (OTHER_DATA_TYPE)b[(t * TILE_SIZE + threadIdx.y) * nj + j];
-            } else {
-                Bsub[threadIdx.y][threadIdx.x] = 0.0;
-                Bsub64[threadIdx.y][threadIdx.x] = 0.0;
-            }
-
-            __syncthreads();
-
-            // Compute partial product
-            for (int k = 0; k < TILE_SIZE; k++)
-            {
-                val64 += Asub64[threadIdx.y][k] * Bsub64[k][threadIdx.x];
-            }
-
-            __syncthreads();
-        }
-
-        if ((i < _PB_NI) && (j < _PB_NJ))
-        {	
-            // int k;
-            // for(k=0; k < _PB_NK; k++)
-            // {
-            // 	val += a[i + k*NJ] * b[k * NJ +j];
-            // }
-            c[i*NJ + j] = c[i*NJ + j]*beta + val64*alpha;
-        }
+    if ((i < _PB_NI) && (j < _PB_NJ))
+    {	
+        // int k;
+        // for(k=0; k < _PB_NK; k++)
+        // {
+        // 	val += a[i + k*NJ] * b[k * NJ +j];
+        // }
+        c[i*NJ + j] = c[i*NJ + j]*beta + val*alpha;
     }
 }
 
@@ -560,8 +797,8 @@ int main(int argc, char *argv[])
 	GPU_argv_init();
 	
 	// gemmCuda(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
-	gemmCudaBetter(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
-	gemmCudaTiled(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	// gemmCudaBetter(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	// gemmCudaTiled(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 	gemmCudaTiled_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 	// gemmCuda_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 
