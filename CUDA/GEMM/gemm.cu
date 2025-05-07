@@ -199,6 +199,129 @@ __global__ void gemm_kernel_tiled(int ni, int nj, int nk, const DATA_TYPE alpha,
 	}
 }
 
+__global__ void gemm_kernel_tiled_pipelined(int ni, int nj, int nk, const DATA_TYPE alpha, const DATA_TYPE beta, const DATA_TYPE *__restrict__ a, const DATA_TYPE *__restrict__ b, DATA_TYPE *__restrict__ c)
+{
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	// int i = blockIdx.y * blockDim.y + threadIdx.y;
+    const int TILE_SIZE = DIM_THREAD_BLOCK_X;
+
+    __shared__ DATA_TYPE Asub1[TILE_SIZE][TILE_SIZE];
+    __shared__ DATA_TYPE Bsub1[TILE_SIZE][TILE_SIZE];
+    __shared__ DATA_TYPE Asub2[TILE_SIZE][TILE_SIZE];
+    __shared__ DATA_TYPE Bsub2[TILE_SIZE][TILE_SIZE];
+    DATA_TYPE val1 = 0;
+    DATA_TYPE val2 = 0;
+
+    DATA_TYPE* Asubptr = &Asub1[0][0];
+    DATA_TYPE* Bsubptr = &Bsub1[0][0];
+    
+    // load tile 0's data, for 2*threadIdx.y and +1
+    if (threadIdx.y < 16){
+        int isub1= 2*threadIdx.y;
+        int isub2= isub1+1;
+        int i1 = blockIdx.y*blockDim.y + isub1;
+        int i2 = blockIdx.y*blockDim.y + isub2;
+        if (i1 < ni && threadIdx.x < nk){
+            Asubptr[isub1*TILE_SIZE + threadIdx.x] = a[i1 * nk + (threadIdx.x)];
+            Asubptr[isub2*TILE_SIZE + threadIdx.x] = a[i2 * nk + (threadIdx.x)];
+        } else {
+            Asubptr[isub1*TILE_SIZE + threadIdx.x] = 0.0;
+            Asubptr[isub2*TILE_SIZE + threadIdx.x] = 0.0;
+        }
+        if (j < nj && isub1 < nk){
+            Bsubptr[isub1*TILE_SIZE + threadIdx.x] = b[(isub1) * nj + j];
+            Bsubptr[isub2*TILE_SIZE + threadIdx.x] = b[(isub2) * nj + j];
+        } else {
+            Bsubptr[isub1*TILE_SIZE + threadIdx.x] = 0.0;
+            Bsubptr[isub2*TILE_SIZE + threadIdx.x] = 0.0;
+        }
+    }
+    DATA_TYPE* Asubptr2 = Asubptr;
+    DATA_TYPE* Bsubptr2 = Bsubptr;
+    Asubptr = &Asub2[0][0];
+    Bsubptr = &Bsub2[0][0];
+
+    __syncthreads();
+
+    for (int t = 0; t < ((nk + TILE_SIZE - 1) / TILE_SIZE)-1; t++)
+    {
+        // Load a tile of A and B into shared memory
+        if (threadIdx.y < 16){
+            // load t+1's data, for 2*threadIdx.y and +1
+            int isub1= 2*threadIdx.y;
+            int isub2= isub1+1;
+            int i1 = blockIdx.y*blockDim.y + isub1;
+            int i2 = blockIdx.y*blockDim.y + isub2;
+            if (i1 < ni && ((t+1)*TILE_SIZE + threadIdx.x) < nk){
+                Asubptr[isub1*TILE_SIZE + threadIdx.x] = a[i1 * nk + ((t+1)*TILE_SIZE + threadIdx.x)];
+                Asubptr[isub2*TILE_SIZE + threadIdx.x] = a[i2 * nk + ((t+1)*TILE_SIZE + threadIdx.x)];
+            } else {
+                Asubptr[isub1*TILE_SIZE + threadIdx.x] = 0.0;
+                Asubptr[isub2*TILE_SIZE + threadIdx.x] = 0.0;
+            }
+            if (j < nj && ((t+1)*TILE_SIZE + isub1) < nk){
+                Bsubptr[isub1*TILE_SIZE + threadIdx.x] = b[((t+1)*TILE_SIZE + isub1) * nj + j];
+                Bsubptr[isub2*TILE_SIZE + threadIdx.x] = b[((t+1)*TILE_SIZE + isub2) * nj + j];
+            } else {
+                Bsubptr[isub1*TILE_SIZE + threadIdx.x] = 0.0;
+                Bsubptr[isub2*TILE_SIZE + threadIdx.x] = 0.0;
+            }
+        } else {
+            // perform ops on 2*(threadIdx.y-16) and +1
+            for (int k = 0; k < TILE_SIZE; k++)
+            {
+                val1 += Asubptr2[2*(threadIdx.y-16)*TILE_SIZE + k] * Bsubptr2[k*TILE_SIZE + threadIdx.x];
+                val2 += Asubptr2[(2*(threadIdx.y-16)+1)*TILE_SIZE + k] * Bsubptr2[k*TILE_SIZE + threadIdx.x];
+            }
+        }
+        // if (i < ni && t * TILE_SIZE + threadIdx.x < nk)
+        //     Asub[threadIdx.y][threadIdx.x] = a[i * nk + (t * TILE_SIZE + threadIdx.x)];
+        // else
+        //     Asub[threadIdx.y][threadIdx.x] = 0.0;
+        //
+        // if (j < nj && t * TILE_SIZE + threadIdx.y < nk)
+        //     Bsub[threadIdx.y][threadIdx.x] = b[(t * TILE_SIZE + threadIdx.y) * nj + j];
+        // else
+        //     Bsub[threadIdx.y][threadIdx.x] = 0.0;
+
+        DATA_TYPE* Asubtmp = Asubptr;
+        DATA_TYPE* Bsubtmp = Bsubptr;
+        Asubptr = Asubptr2;
+        Bsubptr = Bsubptr2;
+        Asubptr2 = Asubtmp;
+        Bsubptr2 = Bsubtmp;
+
+        __syncthreads();
+
+        // Compute partial product
+        // for (int k = 0; k < TILE_SIZE; k++)
+        // {
+        //     val += Asub[threadIdx.y][k] * Bsub[k][threadIdx.x];
+        // }
+        //
+        // __syncthreads();
+    }
+    if (threadIdx.y >= 16){
+        for (int k = 0; k < TILE_SIZE; k++)
+        {
+            val1 += Asubptr2[2*(threadIdx.y-16)*TILE_SIZE + k] * Bsubptr2[k*TILE_SIZE + threadIdx.x];
+            val2 += Asubptr2[(2*(threadIdx.y-16)+1)*TILE_SIZE + k] * Bsubptr2[k*TILE_SIZE + threadIdx.x];
+        }
+        int isub1= 2*(threadIdx.y-16);
+        int isub2= isub1+1;
+        int i1 = blockIdx.y*blockDim.y + isub1;
+        int i2 = blockIdx.y*blockDim.y + isub2;
+        if ((i1 < _PB_NI) && (j < _PB_NJ))
+        {	
+            c[i1*NJ + j] = c[i1*NJ + j]*beta + val1*alpha;
+            c[i2*NJ + j] = c[i2*NJ + j]*beta + val2*alpha;
+        }
+    }
+
+    // perform ops on t=((nk + TILE_SIZE - 1) / TILE_SIZE)-1, 2*tid.y-16 and +1
+
+}
+
 __global__ void gemm_kernel_tiled_32_64(int ni, int nj, int nk, const DATA_TYPE alpha, const DATA_TYPE beta, const DATA_TYPE *__restrict__ a, const DATA_TYPE *__restrict__ b, DATA_TYPE *__restrict__ c)
 {
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -667,6 +790,42 @@ void gemmCudaTiled(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA
 	cudaFree(C_gpu);
 }
 
+void gemmCudaTiledPipelined(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), 
+	DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj), DATA_TYPE POLYBENCH_2D(C,NI,NJ,ni,nj), DATA_TYPE POLYBENCH_2D(C_outputFromGpu,NI,NJ,ni,nj))
+{
+	DATA_TYPE *A_gpu;
+	DATA_TYPE *B_gpu;
+	DATA_TYPE *C_gpu;
+
+	cudaMalloc((void **)&A_gpu, sizeof(DATA_TYPE) * NI * NK);
+	cudaMalloc((void **)&B_gpu, sizeof(DATA_TYPE) * NK * NJ);
+	cudaMalloc((void **)&C_gpu, sizeof(DATA_TYPE) * NI * NJ);
+	
+	cudaMemcpy(A_gpu, A, sizeof(DATA_TYPE) * NI * NK, cudaMemcpyHostToDevice);
+	cudaMemcpy(B_gpu, B, sizeof(DATA_TYPE) * NK * NJ, cudaMemcpyHostToDevice);
+	cudaMemcpy(C_gpu, C, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyHostToDevice);
+	
+	dim3 block(DIM_THREAD_BLOCK_X, DIM_THREAD_BLOCK_Y);
+	dim3 grid((size_t)(ceil( ((float)NI)/ ((float)block.x) )),(size_t)(ceil( ((float)NJ)/ ((float)block.y) )));
+
+	/* Start timer. */
+  	polybench_start_instruments;
+
+	gemm_kernel_tiled_pipelined<<< grid, block >>>(ni, nj, nk, alpha, beta, A_gpu, B_gpu, C_gpu);
+	cudaThreadSynchronize();
+
+	/* Stop and print timer. */
+	printf("GPU Time in seconds:\n");
+  	polybench_stop_instruments;
+ 	polybench_print_instruments;
+
+	cudaMemcpy(C_outputFromGpu, C_gpu, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyDeviceToHost);    
+	
+	cudaFree(A_gpu);
+	cudaFree(B_gpu);
+	cudaFree(C_gpu);
+}
+
 void gemmCudaTiled_32_64(int ni, int nj, int nk, DATA_TYPE alpha, DATA_TYPE beta, DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk), 
 	DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj), DATA_TYPE POLYBENCH_2D(C,NI,NJ,ni,nj), DATA_TYPE POLYBENCH_2D(C_outputFromGpu,NI,NJ,ni,nj))
 {
@@ -798,8 +957,9 @@ int main(int argc, char *argv[])
 	
 	// gemmCuda(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 	// gemmCudaBetter(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
-	// gemmCudaTiled(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
-	gemmCudaTiled_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	gemmCudaTiled(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	gemmCudaTiledPipelined(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
+	// gemmCudaTiled_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 	// gemmCuda_32_64(ni, nj, nk, alpha, beta, POLYBENCH_ARRAY(A), POLYBENCH_ARRAY(B), POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_outputFromGpu));
 
 
